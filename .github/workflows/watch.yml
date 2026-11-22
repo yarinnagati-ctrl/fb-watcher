@@ -1,12 +1,15 @@
 name: סוכן 3 - בדיקת תגובות
 
+# הרצה אחת ארוכה (כמעט 6 שעות) שבודקת כל ~15 דקות,
+# ובסוף מפעילה בעצמה את ההרצה הבאה. השעון של גיטהאב נשאר רק כגיבוי.
 on:
-  schedule:
-    - cron: '*/15 * * * *'
   workflow_dispatch:
+  schedule:
+    - cron: '7 */3 * * *'
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: watcher
@@ -15,22 +18,32 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
-      - name: בדיקת הקבוצה
+      - name: בדיקת הקבוצה כל 15 דקות
         env:
           FB_COOKIES: ${{ secrets.FB_COOKIES }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           TZ: Asia/Jerusalem
-        run: node watcher.mjs once
-      - name: שמירת התגובות שכבר נשלחו
         run: |
           git config user.name "watcher-bot"
           git config user.email "watcher-bot@users.noreply.github.com"
-          git add seen.json
-          git diff --cached --quiet || (git commit -m "עדכון תגובות שנשלחו" && git push)
+          END=$(( $(date +%s) + 340*60 ))
+          while [ $(date +%s) -lt $END ]; do
+            timeout 12m node watcher.mjs once || echo "הסבב נכשל, ממשיך"
+            git add seen.json
+            if ! git diff --cached --quiet; then
+              git commit -m "עדכון תגובות שנשלחו" && (git pull --rebase -q && git push -q) || echo "שמירה נכשלה"
+            fi
+            sleep $(( 720 + RANDOM % 360 ))
+          done
+      - name: הפעלת ההרצה הבאה
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run watch.yml --ref main
