@@ -1,0 +1,36 @@
+name: סוכן 3 - בדיקת תגובות
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watcher
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: בדיקת הקבוצה
+        env:
+          FB_COOKIES: ${{ secrets.FB_COOKIES }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          TZ: Asia/Jerusalem
+        run: node watcher.mjs once
+      - name: שמירת התגובות שכבר נשלחו
+        run: |
+          git config user.name "watcher-bot"
+          git config user.email "watcher-bot@users.noreply.github.com"
+          git add seen.json
+          git diff --cached --quiet || (git commit -m "עדכון תגובות שנשלחו" && git push)
